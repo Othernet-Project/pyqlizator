@@ -128,7 +128,7 @@ class Connection(object):
         status = data.get('status', self.UNKNOWN_ERROR)
         if status != self.OK:
             message = data.get('message', self.DEFAULT_MESSAGE)
-            raise self.Error(status, message)
+            raise Error(status, message)
 
         return None
 
