@@ -181,3 +181,10 @@ class Connection(object):
         self._socket.close()
         self._socket = None
 
+    def drop_database(self):
+        data = {'endpoint': 'drop',
+                'database': self._dbname,
+                'path': self._dbpath}
+        self._send(data)
+        return list(self._recv())
+
