@@ -1,0 +1,2 @@
+recursive-include pyqlizator *
+recursive-exclude tests *
