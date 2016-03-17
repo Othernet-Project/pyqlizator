@@ -2,6 +2,8 @@ import socket
 
 import msgpack
 
+from .exceptions import Error
+
 
 class Socket(object):
 
@@ -31,15 +33,6 @@ class Socket(object):
         self._sock.sendall(data)
 
 
-class OperationalError(Exception):
-
-    def __init__(self, code, message):
-        self.code = code
-        self.message = message
-        msg = '[{}] {}'.format(code, message)
-        super(OperationalError, self).__init__(msg)
-
-
 class Connection(object):
     SQLITE_DATE_TYPES = ('date', 'datetime', 'timestamp')
     MAX_VARIABLE_NUMBER = 999
@@ -54,11 +47,12 @@ class Connection(object):
     DATABASE_OPENING_ERROR = 4
     DATABASE_NOT_FOUND = 5
     INVALID_QUERY = 5
+    # client error codes
+    NETWORK_ERROR = 100
     # in case an error message is not found in the reply
     DEFAULT_MESSAGE = 'Unknown error.'
 
     socket_cls = Socket
-    OperationalError = OperationalError
 
     _to_primitive_converters = {}
     _from_primitive_converters = {}
@@ -68,9 +62,9 @@ class Connection(object):
         self._dbpath = path
         try:
             self._socket = self.socket_cls(host, port)
-        except (socket.error, socket.timeout):
+        except (socket.error, socket.timeout) as exc:
             self._socket = None
-            raise
+            raise Error(self.NETWORK_ERROR, str(exc), exc)
         else:
             self._connect_to_database()
 
@@ -104,9 +98,9 @@ class Connection(object):
         serialized = msgpack.packb(data, default=self.to_primitive)
         try:
             self._socket.send(serialized)
-        except (socket.error, socket.timeout):
+        except (socket.error, socket.timeout) as exc:
             self._socket = None
-            raise
+            raise Error(self.NETWORK_ERROR, str(exc), exc)
 
     def _recv(self):
         unpacker = msgpack.Unpacker()
@@ -118,9 +112,9 @@ class Connection(object):
                     reply = self._process_reply(obj)
                     if reply:
                         yield reply
-        except (socket.error, socket.timeout):
+        except (socket.error, socket.timeout) as exc:
             self._socket = None
-            raise
+            raise Error(self.NETWORK_ERROR, str(exc), exc)
 
     def _construct_row(self, data):
         row = dict()
@@ -134,7 +128,7 @@ class Connection(object):
         status = data.get('status', self.UNKNOWN_ERROR)
         if status != self.OK:
             message = data.get('message', self.DEFAULT_MESSAGE)
-            raise self.OperationalError(status, message)
+            raise self.Error(status, message)
 
         return None
 
