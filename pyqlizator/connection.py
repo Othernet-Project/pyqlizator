@@ -164,14 +164,25 @@ class Connection(object):
         return self._recv()
 
     def execute(self, sql, *parameters):
-        return self._command(self.EXECUTE,
-                             sql,
-                             *parameters)
+        return list(self._command(self.EXECUTE,
+                                  sql,
+                                  *parameters))
 
-    def fetch(self, sql, *parameters):
-        return self._command(self.EXECUTE_AND_FETCH,
-                             sql,
-                             *parameters)
+    def executemany(self, sql, seq_of_params):
+        return [self.execute(sql, params) for params in seq_of_params]
+
+    def executescript(self, sql):
+        return self.execute(sql)
+
+    def fetchone(self, sql, *parameters):
+        for item in self._command(self.EXECUTE_AND_FETCH, sql, *parameters):
+            return item  # returns first item received and ignores rest
+
+    def fetchall(self, sql, *parameters):
+        return list(self._command(self.EXECUTE_AND_FETCH, sql, *parameters))
+
+    def fetchiter(self, sql, *parameters):
+        return self._command(self.EXECUTE_AND_FETCH, sql, *parameters)
 
     @property
     def closed(self):
