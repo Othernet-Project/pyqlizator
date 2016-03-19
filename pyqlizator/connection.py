@@ -104,43 +104,35 @@ class Connection(object):
 
     def _recv(self):
         unpacker = msgpack.Unpacker()
-        self._meta_info = None
+        is_header_processed = False
         try:
             for data in self._socket.recv():
                 unpacker.feed(data)
                 for obj in unpacker:
-                    reply = self._process_reply(obj)
-                    if reply:
-                        yield reply
+                    # first object coming out is guaranteed to be the header
+                    if not is_header_processed:
+                        self._process_header(obj)
+                        is_header_processed = True
+                        continue
+                    yield self._process_data(obj)
         except (socket.error, socket.timeout) as exc:
             self._socket = None
             raise Error(self.NETWORK_ERROR, str(exc), exc)
 
-    def _construct_row(self, data):
-        row = dict()
-        for ((col_name, col_type), value) in zip(self._meta_info, data):
-            row[col_name] = self.from_primitive(value, col_type)
-        return row
-
-    def _check_status(self, data):
+    def _process_header(self, header):
         # a dict containing ``status`` key holds the information about
         # whether the query was successful or not
-        status = data.get('status', self.UNKNOWN_ERROR)
+        status = header.get('status', self.UNKNOWN_ERROR)
         if status != self.OK:
-            message = data.get('message', self.DEFAULT_MESSAGE)
+            message = header.get('message', self.DEFAULT_MESSAGE)
             raise Error(status, message)
 
-        return None
+        self._rowcount = header.get('rowcount', -1)
+        self._cols = header['columns']
 
-    def _process_reply(self, data):
-        if isinstance(data, dict):
-            return self._check_status(data)
-
-        if data and isinstance(data[-1], (list, tuple)):
-            self._meta_info = data
-            return None
-
-        return self._construct_row(data)
+    def _process_data(self, data):
+        return dict((colname, self.from_primitive(value, coltype))
+                    for ((colname, coltype), value) in zip(self._cols, data))
 
     def _connect_to_database(self):
         data = {'endpoint': 'connect',
@@ -198,4 +190,3 @@ class Connection(object):
                 'path': self._dbpath}
         self._send(data)
         return list(self._recv())
-
