@@ -2,6 +2,7 @@ import socket
 
 import msgpack
 
+from .cursor import Cursor
 from .exceptions import Error
 
 
@@ -34,28 +35,12 @@ class Socket(object):
 
 
 class Connection(object):
-    SQLITE_DATE_TYPES = ('date', 'datetime', 'timestamp')
-    MAX_VARIABLE_NUMBER = 999
-    # server commands
-    EXECUTE = 1
-    EXECUTE_AND_FETCH = 2
-    # server reply status codes
-    OK = 0
-    UNKNOWN_ERROR = 1
-    INVALID_REQUEST = 2
-    DESERIALIZATION_ERROR = 3
-    DATABASE_OPENING_ERROR = 4
-    DATABASE_NOT_FOUND = 5
-    INVALID_QUERY = 5
     # client error codes
     NETWORK_ERROR = 100
-    # in case an error message is not found in the reply
-    DEFAULT_MESSAGE = 'Unknown error.'
+    SERVER_ERROR = 101
 
     socket_cls = Socket
-
-    _to_primitive_converters = {}
-    _from_primitive_converters = {}
+    cursor_cls = Cursor
 
     def __init__(self, host, port, database, path):
         self._dbname = database
@@ -68,34 +53,8 @@ class Connection(object):
         else:
             self._connect_to_database()
 
-    @classmethod
-    def to_primitive(cls, obj):
-        try:
-            fn = cls._to_primitive_converters[type(obj)]
-        except KeyError:
-            return obj
-        else:
-            return fn(obj)
-
-    @classmethod
-    def from_primitive(cls, value, type_name):
-        try:
-            fn = cls._from_primitive_converters[type_name]
-        except KeyError:
-            return value
-        else:
-            return fn(value)
-
-    @classmethod
-    def register_to_primitive(cls, type_object, fn):
-        cls._to_primitive_converters[type_object] = fn
-
-    @classmethod
-    def register_from_primitive(cls, type_name, fn):
-        cls._from_primitive_converters[type_name] = fn
-
     def _send(self, data):
-        serialized = msgpack.packb(data, default=self.to_primitive)
+        serialized = msgpack.packb(data, default=self.cursor_cls.to_primitive)
         try:
             self._socket.send(serialized)
         except (socket.error, socket.timeout) as exc:
@@ -104,77 +63,18 @@ class Connection(object):
 
     def _recv(self):
         unpacker = msgpack.Unpacker()
-        is_header_processed = False
         try:
             for data in self._socket.recv():
                 unpacker.feed(data)
                 for obj in unpacker:
-                    # first object coming out is guaranteed to be the header
-                    if not is_header_processed:
-                        self._process_header(obj)
-                        is_header_processed = True
-                        continue
-                    yield self._process_data(obj)
+                    yield obj
         except (socket.error, socket.timeout) as exc:
             self._socket = None
             raise Error(self.NETWORK_ERROR, str(exc), exc)
 
-    def _process_header(self, header):
-        # a dict containing ``status`` key holds the information about
-        # whether the query was successful or not
-        status = header.get('status', self.UNKNOWN_ERROR)
-        if status != self.OK:
-            message = header.get('message', self.DEFAULT_MESSAGE)
-            raise Error(status, message)
-
-        self._rowcount = header.get('rowcount', -1)
-        self._cols = header['columns']
-
-    def _process_data(self, data):
-        return dict((colname, self.from_primitive(value, coltype))
-                    for ((colname, coltype), value) in zip(self._cols, data))
-
-    def _connect_to_database(self):
-        data = {'endpoint': 'connect',
-                'database': self._dbname,
-                'path': self._dbpath}
-        self._send(data)
-        return list(self._recv())
-
-    def _command(self, operation, sql, *parameters):
-        try:
-            (params,) = parameters
-        except ValueError:
-            params = ()
-
-        data = {'endpoint': 'query',
-                'operation': operation,
-                'database': self._dbname,
-                'query': sql,
-                'parameters': params}
+    def transmit(self, data):
         self._send(data)
         return self._recv()
-
-    def execute(self, sql, *parameters):
-        return list(self._command(self.EXECUTE,
-                                  sql,
-                                  *parameters))
-
-    def executemany(self, sql, seq_of_params):
-        return [self.execute(sql, params) for params in seq_of_params]
-
-    def executescript(self, sql):
-        return self.execute(sql)
-
-    def fetchone(self, sql, *parameters):
-        for item in self._command(self.EXECUTE_AND_FETCH, sql, *parameters):
-            return item  # returns first item received and ignores rest
-
-    def fetchall(self, sql, *parameters):
-        return list(self._command(self.EXECUTE_AND_FETCH, sql, *parameters))
-
-    def fetchiter(self, sql, *parameters):
-        return self._command(self.EXECUTE_AND_FETCH, sql, *parameters)
 
     @property
     def closed(self):
@@ -184,9 +84,33 @@ class Connection(object):
         self._socket.close()
         self._socket = None
 
+    def cursor(self):
+        return self.cursor_cls(self)
+
+    def _check_status(self, reply):
+        try:
+            (header,) = reply
+        except ValueError:
+            raise Error(self.SERVER_ERROR, 'unrecognized reply')
+        else:
+            retval = header.get('status')
+            if retval != 0:
+                raise Error(retval, header.get('message', 'no error message'))
+
+    def _connect_to_database(self):
+        data = {'endpoint': 'connect',
+                'database': self._dbname,
+                'path': self._dbpath}
+        reply = self.transmit(data)
+        self._check_status(reply)
+
     def drop_database(self):
         data = {'endpoint': 'drop',
                 'database': self._dbname,
                 'path': self._dbpath}
-        self._send(data)
-        return list(self._recv())
+        reply = self.transmit(data)
+        self._check_status(reply)
+
+    @property
+    def database(self):
+        return self._dbname
