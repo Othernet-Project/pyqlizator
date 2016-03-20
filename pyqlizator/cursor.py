@@ -19,6 +19,8 @@ class Cursor(object):
 
     def __init__(self, connection):
         self._conn = connection
+        self._rowcount = -1
+        self._cols = None
 
     @classmethod
     def to_primitive(cls, obj):
@@ -49,6 +51,17 @@ class Cursor(object):
     @property
     def connection(self):
         return self._conn
+
+    @property
+    def rowcount(self):
+        return self._rowcount
+
+    @property
+    def description(self):
+        if not self._cols:
+            return None
+        return tuple((colname, coltype, None, None, None, None, None)
+                     for (colname, coltype) in self._cols)
 
     def _process_header(self, header):
         # a dict containing ``status`` key holds the information about
