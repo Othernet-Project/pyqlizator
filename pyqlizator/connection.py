@@ -54,7 +54,6 @@ class Connection(object):
             self._connect_to_database(**options)
 
     def _send(self, data):
-        print(data)
         serialized = msgpack.packb(data, default=self.cursor_cls.to_primitive)
         try:
             self._socket.send(serialized)
