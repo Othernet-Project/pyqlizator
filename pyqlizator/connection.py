@@ -42,7 +42,7 @@ class Connection(object):
     socket_cls = Socket
     cursor_cls = Cursor
 
-    def __init__(self, host, port, database, path):
+    def __init__(self, host, port, database, path, **options):
         self._dbname = database
         self._dbpath = path
         try:
@@ -51,9 +51,10 @@ class Connection(object):
             self._socket = None
             raise Error(self.NETWORK_ERROR, str(exc), exc)
         else:
-            self._connect_to_database()
+            self._connect_to_database(**options)
 
     def _send(self, data):
+        print(data)
         serialized = msgpack.packb(data, default=self.cursor_cls.to_primitive)
         try:
             self._socket.send(serialized)
@@ -97,10 +98,11 @@ class Connection(object):
             if retval != 0:
                 raise Error(retval, header.get('message', 'no error message'))
 
-    def _connect_to_database(self):
+    def _connect_to_database(self, **options):
         data = {'endpoint': 'connect',
                 'database': self._dbname,
                 'path': self._dbpath}
+        data.update(options)
         reply = self.transmit(data)
         self._check_status(reply)
 
