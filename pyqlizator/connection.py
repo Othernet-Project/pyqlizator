@@ -49,7 +49,7 @@ class Connection(object):
             self._socket = self.socket_cls(host, port)
         except (socket.error, socket.timeout) as exc:
             self._socket = None
-            raise Error(self.NETWORK_ERROR, str(exc), exc)
+            raise Error(self.NETWORK_ERROR, str(exc), original_exception=exc)
         else:
             self._connect_to_database(**options)
 
@@ -59,7 +59,7 @@ class Connection(object):
             self._socket.send(serialized)
         except (socket.error, socket.timeout) as exc:
             self._socket = None
-            raise Error(self.NETWORK_ERROR, str(exc), exc)
+            raise Error(self.NETWORK_ERROR, str(exc), original_exception=exc)
 
     def _recv(self):
         unpacker = msgpack.Unpacker()
@@ -70,7 +70,7 @@ class Connection(object):
                     yield obj
         except (socket.error, socket.timeout) as exc:
             self._socket = None
-            raise Error(self.NETWORK_ERROR, str(exc), exc)
+            raise Error(self.NETWORK_ERROR, str(exc), original_exception=exc)
 
     def transmit(self, data):
         self._send(data)
@@ -95,7 +95,9 @@ class Connection(object):
         else:
             retval = header.get('status')
             if retval != 0:
-                raise Error(retval, header.get('message', 'no error message'))
+                message = header.get('message', 'no error message')
+                details = header.get('details', 'no details')
+                raise Error(retval, message, details=details)
 
     def _connect_to_database(self, **options):
         data = {'endpoint': 'connect',

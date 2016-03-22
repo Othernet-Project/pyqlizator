@@ -69,7 +69,8 @@ class Cursor(object):
         status = header.get('status', self.UNKNOWN_ERROR)
         if status != self.OK:
             message = header.get('message', 'no error message')
-            raise Error(status, message)
+            details = header.get('details', 'no details')
+            raise Error(status, message, details=details)
 
         self._rowcount = header.get('rowcount', -1)
         self._cols = header['columns']
