@@ -100,20 +100,16 @@ class Connection(object):
                 raise Error(retval, message, details=details)
 
     def _connect_to_database(self, **options):
-        data = {'endpoint': 'connect',
-                'database': self._dbname,
-                'path': self._dbpath}
+        data = {'endpoint': 'connect', 'database': self._dbpath}
         data.update(options)
         reply = self.transmit(data)
         self._check_status(reply)
 
     def drop_database(self):
-        data = {'endpoint': 'drop',
-                'database': self._dbname,
-                'path': self._dbpath}
+        data = {'endpoint': 'drop', 'database': self._dbpath}
         reply = self.transmit(data)
         self._check_status(reply)
 
     @property
     def database(self):
-        return self._dbname
+        return self._dbpath
